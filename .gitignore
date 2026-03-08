@@ -1,0 +1,19 @@
+# Binaries
+bin/
+*.exe
+
+# Environment files — never commit real values
+.env
+.env.local
+.env.dev
+.env.prod
+
+# Only .env.example is safe to commit
+!.env.example
+
+# Go
+go.sum
+vendor/
+
+# OS
+.DS_Store

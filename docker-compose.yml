@@ -1,0 +1,11 @@
+version: '3.8'
+
+services:
+
+  api-gateway:
+    build: .
+    ports:
+      - "8080:8080"
+    env_file:
+      - ${ENV_FILE:-.env.local}
+    restart: unless-stopped
