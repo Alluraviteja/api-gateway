@@ -33,15 +33,15 @@ The API Gateway sits in front of multiple backend services (`app1.test.com`, `ap
 
 ```
                           ┌─────────────────────┐
-                          │   Rate Limiter Svc   │
-                          │  :9090               │
+                          │   Rate Limiter Svc  │
+                          │  :9090              │
                           └──────────┬──────────┘
                                      │ POST /rate-limit/check
                                      │
 Client ──► app1.test.com ──► ┌───────┴────────┐ ──► http://app1-service
 Client ──► app2.test.com ──► │  API Gateway   │ ──► http://app2-service
-                              │  :8080         │
-                              └────────────────┘
+                             │  :8080         │
+                             └────────────────┘
                                      │
                               HTTP 429 if denied
 ```
