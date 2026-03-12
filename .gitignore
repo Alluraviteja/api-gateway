@@ -12,7 +12,6 @@ bin/
 !.env.example
 
 # Go
-go.sum
 vendor/
 
 # OS
