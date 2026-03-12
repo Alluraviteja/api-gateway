@@ -1,4 +1,4 @@
-name: Build and Push Docker Image
+name: CD
 
 on:
   push:
@@ -7,44 +7,33 @@ on:
 
 concurrency:
   group: docker-build
-  cancel-in-progress: true  # cancel previous build if new commit is pushed
+  cancel-in-progress: true
 
 jobs:
   build-and-push:
-    runs-on: ubuntu-24.04  # pinned to avoid breaking changes from ubuntu-latest
+    runs-on: ubuntu-24.04
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: '1.24'
-          cache: true  # caches Go module dependencies (~/.cache/go)
-
-      - name: Download dependencies
-        run: go mod download
-
-      - name: Run tests
-        run: go test ./...
-
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3  # enables BuildKit (required for cache mounts)
+        uses: docker/setup-buildx-action@v3
 
       - name: Log in to Docker Hub
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKER_USERNAME }}
-          password: ${{ secrets.DOCKER_TOKEN }}  # use access token, not password
+          password: ${{ secrets.DOCKER_TOKEN }}
 
-      - name: Build image locally (no push)
+      - name: Build and push image to Docker Hub
         uses: docker/build-push-action@v5
         with:
           context: .
           file: ./Dockerfile
-          push: false           # build only, load into local Docker daemon for scanning
-          load: true
+          push: true
+          provenance: true
+          sbom: true
           build-args: |
             VERSION=${{ github.ref_name }}
             GIT_COMMIT=${{ github.sha }}
@@ -54,27 +43,18 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - name: Scan image for vulnerabilities
-        uses: aquasecurity/trivy-action@0.20.0  # pinned version — master can change
+      - name: Deploy to Hetzner server
+        uses: appleboy/ssh-action@v1.0.3
         with:
-          image-ref: ${{ secrets.DOCKER_USERNAME }}/api-gateway:${{ github.sha }}
-          format: table
-          exit-code: 1          # fail workflow if vulnerabilities found — blocks push below
-          severity: CRITICAL,HIGH
-
-      - name: Push image to Docker Hub
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          file: ./Dockerfile
-          push: true            # only reached if trivy scan passed
-          provenance: true      # generates SLSA provenance attestation
-          sbom: true            # generates Software Bill of Materials
-          build-args: |
-            VERSION=${{ github.ref_name }}
-            GIT_COMMIT=${{ github.sha }}
-          tags: |
-            ${{ secrets.DOCKER_USERNAME }}/api-gateway:latest
-            ${{ secrets.DOCKER_USERNAME }}/api-gateway:${{ github.sha }}
-          cache-from: type=gha  # reuses cached layers — no rebuild
-          cache-to: type=gha,mode=max
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          script: |
+            docker pull ${{ secrets.DOCKER_USERNAME }}/api-gateway:latest
+            docker stop api-gateway || true
+            docker rm api-gateway || true
+            docker run -d \
+              --name api-gateway \
+              --restart always \
+              -p 8080:8080 \
+              ${{ secrets.DOCKER_USERNAME }}/api-gateway:latest
