@@ -1,0 +1,71 @@
+name: Build and Push Docker Image
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-24.04  # pinned to avoid breaking changes from ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+          cache: true  # caches Go module dependencies (~/.cache/go)
+
+      - name: Run tests
+        run: go test ./...
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3  # enables BuildKit (required for cache mounts)
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Build image locally (no push)
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile
+          push: false           # build only, load into local Docker daemon for scanning
+          load: true
+          build-args: |
+            VERSION=${{ github.ref_name }}
+            GIT_COMMIT=${{ github.sha }}
+          tags: |
+            ${{ secrets.DOCKER_USERNAME }}/api-gateway:latest
+            ${{ secrets.DOCKER_USERNAME }}/api-gateway:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Scan image for vulnerabilities
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ secrets.DOCKER_USERNAME }}/api-gateway:${{ github.sha }}
+          format: table
+          exit-code: 1          # fail workflow if vulnerabilities found — blocks push below
+          severity: CRITICAL,HIGH
+
+      - name: Push image to Docker Hub
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true            # only reached if trivy scan passed
+          build-args: |
+            VERSION=${{ github.ref_name }}
+            GIT_COMMIT=${{ github.sha }}
+          tags: |
+            ${{ secrets.DOCKER_USERNAME }}/api-gateway:latest
+            ${{ secrets.DOCKER_USERNAME }}/api-gateway:${{ github.sha }}
+          cache-from: type=gha  # reuses cached layers — no rebuild
+          cache-to: type=gha,mode=max
