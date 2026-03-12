@@ -19,6 +19,9 @@ jobs:
           go-version: '1.22'
           cache: true  # caches Go module dependencies (~/.cache/go)
 
+      - name: Download dependencies
+        run: go mod download
+
       - name: Run tests
         run: go test ./...
 
