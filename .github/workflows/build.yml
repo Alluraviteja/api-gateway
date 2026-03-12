@@ -34,12 +34,16 @@ jobs:
           push: true
           provenance: true
           sbom: true
+          platforms: linux/amd64,linux/arm64
           build-args: |
             VERSION=${{ github.ref_name }}
             GIT_COMMIT=${{ github.sha }}
           tags: |
             ${{ secrets.DOCKER_USERNAME }}/api-gateway:latest
             ${{ secrets.DOCKER_USERNAME }}/api-gateway:${{ github.sha }}
+          labels: |
+            org.opencontainers.image.source=${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -50,11 +54,35 @@ jobs:
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
           script: |
-            docker pull ${{ secrets.DOCKER_USERNAME }}/api-gateway:latest
+            IMAGE=${{ secrets.DOCKER_USERNAME }}/api-gateway:${{ github.sha }}
+
+            # Pull new image before stopping old container to minimise downtime
+            docker pull $IMAGE
+
+            # Keep track of previous image for rollback
+            PREVIOUS_IMAGE=$(docker inspect --format='{{.Config.Image}}' api-gateway 2>/dev/null || echo "")
+
+            # Swap containers
             docker stop api-gateway || true
             docker rm api-gateway || true
             docker run -d \
               --name api-gateway \
               --restart always \
               -p 8080:8080 \
-              ${{ secrets.DOCKER_USERNAME }}/api-gateway:latest
+              $IMAGE
+
+            # Verify container is running
+            sleep 5
+            if ! docker ps --filter "name=api-gateway" --filter "status=running" | grep -q api-gateway; then
+              echo "Container failed to start — rolling back to $PREVIOUS_IMAGE"
+              docker stop api-gateway || true
+              docker rm api-gateway || true
+              docker run -d \
+                --name api-gateway \
+                --restart always \
+                -p 8080:8080 \
+                $PREVIOUS_IMAGE
+              exit 1
+            fi
+
+            echo "Deployment successful — running $IMAGE"
