@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 
 # -------- Stage 1: Build --------
-FROM golang:1.22-alpine AS builder
+FROM golang:1.24-alpine AS builder
 
 WORKDIR /app
 
@@ -18,7 +18,7 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 
 
 # -------- Stage 2: Runtime --------
-FROM alpine:3.20.3
+FROM alpine:3.21
 
 WORKDIR /app
 
@@ -28,7 +28,7 @@ ARG GIT_COMMIT=unknown
 LABEL org.opencontainers.image.version="${VERSION}" \
       org.opencontainers.image.revision="${GIT_COMMIT}" \
       org.opencontainers.image.title="api-gateway" \
-      org.opencontainers.image.base.name="alpine:3.20.3"
+      org.opencontainers.image.base.name="alpine:3.21"
 
 # Install wget for health check probe
 RUN apk add --no-cache wget
