@@ -56,6 +56,7 @@ jobs:
           source: routes.yaml
           target: /etc/gateway/
           strip_components: 0
+          overwrite: true
 
       - name: Deploy to server
         uses: appleboy/ssh-action@v1.0.3
