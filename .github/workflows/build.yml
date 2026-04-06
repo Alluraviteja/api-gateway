@@ -60,6 +60,7 @@ jobs:
           script: |
             rm -rf /etc/gateway/routes.yaml
             mkdir -p /etc/gateway
+            touch /etc/gateway/routes.yaml
 
       - name: Copy routes.yaml to server
         uses: appleboy/scp-action@v0.1.7
@@ -101,7 +102,7 @@ jobs:
               -e REQUEST_TIMEOUT_SECONDS=${{ secrets.REQUEST_TIMEOUT_SECONDS }} \
               -e METRICS_TOKEN=${{ secrets.METRICS_TOKEN }} \
               -e ROUTES_FILE=/etc/gateway/routes.yaml \
-              -v /etc/gateway/routes.yaml:/etc/gateway/routes.yaml:ro \
+              -v /etc/gateway:/etc/gateway:ro \
               -p 8080:8080 \
               $IMAGE
 
@@ -125,7 +126,7 @@ jobs:
                   -e REQUEST_TIMEOUT_SECONDS=${{ secrets.REQUEST_TIMEOUT_SECONDS }} \
                   -e METRICS_TOKEN=${{ secrets.METRICS_TOKEN }} \
                   -e ROUTES_FILE=/etc/gateway/routes.yaml \
-                  -v /etc/gateway/routes.yaml:/etc/gateway/routes.yaml:ro \
+                  -v /etc/gateway:/etc/gateway:ro \
                   -p 8080:8080 \
                   $PREVIOUS_IMAGE
               else
