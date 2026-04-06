@@ -6,6 +6,8 @@ import (
 	"os"
 	"strconv"
 	"time"
+
+	"gopkg.in/yaml.v3"
 )
 
 // Config holds all gateway configuration loaded from environment variables.
@@ -13,6 +15,7 @@ type Config struct {
 	Port             string
 	LogLevel         string
 	RateLimiterURL   string
+	RoutesFile       string
 	Routes           map[string]string // host -> backend URL
 	AllowPassthrough bool
 	TLSCertFile      string
@@ -22,16 +25,18 @@ type Config struct {
 	RequestTimeout   time.Duration
 }
 
+// routesFile is the structure of routes.yaml.
+type routesFile struct {
+	Routes map[string]string `yaml:"routes"`
+}
+
 // Load reads configuration from environment variables with sensible defaults.
 func Load() *Config {
-	return &Config{
+	cfg := &Config{
 		Port:             getEnv("PORT", "8080"),
 		LogLevel:         getEnv("LOG_LEVEL", "info"),
 		RateLimiterURL:   getEnv("RATE_LIMITER_URL", "http://localhost:9090"),
-		Routes: map[string]string{
-			getEnv("APP1_HOST", "app1.test.com"): getEnv("APP1_BACKEND", "http://app1-service"),
-			getEnv("APP2_HOST", "app2.test.com"): getEnv("APP2_BACKEND", "http://app2-service"),
-		},
+		RoutesFile:       os.Getenv("ROUTES_FILE"),
 		AllowPassthrough: getEnv("ALLOW_PASSTHROUGH", "false") == "true",
 		TLSCertFile:      os.Getenv("TLS_CERT_FILE"),
 		TLSKeyFile:       os.Getenv("TLS_KEY_FILE"),
@@ -39,12 +44,49 @@ func Load() *Config {
 		MaxBodyBytes:     int64(getEnvInt("MAX_BODY_MB", 10)) * 1024 * 1024,
 		RequestTimeout:   time.Duration(getEnvInt("REQUEST_TIMEOUT_SECONDS", 30)) * time.Second,
 	}
+
+	if cfg.RoutesFile != "" {
+		cfg.Routes = loadRoutesFromFile(cfg.RoutesFile)
+	} else {
+		cfg.Routes = map[string]string{
+			getEnv("APP1_HOST", "app1.test.com"): getEnv("APP1_BACKEND", "http://app1-service"),
+			getEnv("APP2_HOST", "app2.test.com"): getEnv("APP2_BACKEND", "http://app2-service"),
+		}
+	}
+
+	return cfg
+}
+
+// loadRoutesFromFile parses a YAML file and returns the routes map.
+func loadRoutesFromFile(path string) map[string]string {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "config: failed to read routes file %q: %v\n", path, err)
+		os.Exit(1)
+	}
+
+	var rf routesFile
+	if err := yaml.Unmarshal(data, &rf); err != nil {
+		fmt.Fprintf(os.Stderr, "config: failed to parse routes file %q: %v\n", path, err)
+		os.Exit(1)
+	}
+
+	if len(rf.Routes) == 0 {
+		fmt.Fprintf(os.Stderr, "config: routes file %q contains no routes\n", path)
+		os.Exit(1)
+	}
+
+	return rf.Routes
 }
 
 // Validate checks that required configuration values are present and valid.
 func (c *Config) Validate() error {
 	if c.Port == "" {
 		return fmt.Errorf("PORT must not be empty")
+	}
+
+	if len(c.Routes) == 0 {
+		return fmt.Errorf("no routes configured: set ROUTES_FILE or APP1_HOST/APP1_BACKEND env vars")
 	}
 
 	if _, err := url.ParseRequestURI(c.RateLimiterURL); err != nil {

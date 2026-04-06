@@ -1,0 +1,3 @@
+routes:
+  app1.test.com: http://app1-service
+  app2.test.com: http://app2-service
