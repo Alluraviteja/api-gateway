@@ -8,4 +8,6 @@ services:
       - "8080:8080"
     env_file:
       - ${ENV_FILE:-.env.local}
+    volumes:
+      - ./routes.yaml:/etc/gateway/routes.yaml:ro
     restart: unless-stopped

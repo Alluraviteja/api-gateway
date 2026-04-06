@@ -56,6 +56,21 @@ jobs:
           script: |
             IMAGE=${{ secrets.DOCKER_USERNAME }}/api-gateway:${{ github.sha }}
 
+            # Ensure routes file directory exists
+            mkdir -p /etc/gateway
+
+            # Write env file from secrets
+            cat > /etc/api-gateway.env <<EOF
+            PORT=${{ secrets.PORT }}
+            LOG_LEVEL=${{ secrets.LOG_LEVEL }}
+            RATE_LIMITER_URL=${{ secrets.RATE_LIMITER_URL }}
+            ALLOW_PASSTHROUGH=${{ secrets.ALLOW_PASSTHROUGH }}
+            MAX_BODY_MB=${{ secrets.MAX_BODY_MB }}
+            REQUEST_TIMEOUT_SECONDS=${{ secrets.REQUEST_TIMEOUT_SECONDS }}
+            METRICS_TOKEN=${{ secrets.METRICS_TOKEN }}
+            ROUTES_FILE=/etc/gateway/routes.yaml
+            EOF
+
             # Pull new image before stopping old container to minimise downtime
             docker pull $IMAGE
 
@@ -68,6 +83,8 @@ jobs:
             docker run -d \
               --name api-gateway \
               --restart always \
+              --env-file /etc/api-gateway.env \
+              -v /etc/gateway/routes.yaml:/etc/gateway/routes.yaml:ro \
               -p 8080:8080 \
               $IMAGE
 
@@ -80,6 +97,8 @@ jobs:
               docker run -d \
                 --name api-gateway \
                 --restart always \
+                --env-file /etc/api-gateway.env \
+                -v /etc/gateway/routes.yaml:/etc/gateway/routes.yaml:ro \
                 -p 8080:8080 \
                 $PREVIOUS_IMAGE
               exit 1
