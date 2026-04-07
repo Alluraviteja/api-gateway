@@ -51,28 +51,6 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - name: Prepare routes directory on server
-        uses: appleboy/ssh-action@v1.0.3
-        with:
-          host: ${{ secrets.SERVER_HOST }}
-          username: ${{ secrets.SERVER_USER }}
-          key: ${{ secrets.SERVER_SSH_KEY }}
-          script: |
-            sudo rm -rf /etc/gateway/routes.yaml
-            sudo mkdir -p /etc/gateway
-            sudo touch /etc/gateway/routes.yaml
-
-      - name: Copy routes.yaml to server
-        uses: appleboy/scp-action@v0.1.7
-        with:
-          host: ${{ secrets.SERVER_HOST }}
-          username: ${{ secrets.SERVER_USER }}
-          key: ${{ secrets.SERVER_SSH_KEY }}
-          source: routes.yaml
-          target: /etc/gateway/
-          strip_components: 0
-          overwrite: true
-
       - name: Deploy to server
         uses: appleboy/ssh-action@v1.0.3
         with:
@@ -102,7 +80,6 @@ jobs:
               -e REQUEST_TIMEOUT_SECONDS=${{ secrets.REQUEST_TIMEOUT_SECONDS }} \
               -e METRICS_TOKEN=${{ secrets.METRICS_TOKEN }} \
               -e ROUTES_FILE=/etc/gateway/routes.yaml \
-              -v /etc/gateway:/etc/gateway:ro \
               -p 8080:8080 \
               $IMAGE
 
@@ -126,7 +103,6 @@ jobs:
                   -e REQUEST_TIMEOUT_SECONDS=${{ secrets.REQUEST_TIMEOUT_SECONDS }} \
                   -e METRICS_TOKEN=${{ secrets.METRICS_TOKEN }} \
                   -e ROUTES_FILE=/etc/gateway/routes.yaml \
-                  -v /etc/gateway:/etc/gateway:ro \
                   -p 8080:8080 \
                   $PREVIOUS_IMAGE
               else
