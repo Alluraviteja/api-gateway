@@ -37,7 +37,6 @@ RUN apk add --no-cache wget
 RUN adduser -D appuser
 
 COPY --from=builder /app/api-gateway .
-COPY routes.yaml /etc/gateway/routes.yaml
 
 USER appuser
 
