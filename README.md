@@ -90,9 +90,10 @@ api-gateway/
 │   └── reverse_proxy.go         # Reverse proxy with circuit breaker + tuned transport
 ├── router/
 │   └── router.go                # Host-based routing with passthrough support
-├── Dockerfile                   # Multi-stage build with HEALTHCHECK
+├── Dockerfile                   # Multi-stage build (non-root user, wget for probes)
 ├── .dockerignore                # Files excluded from Docker image
 ├── docker-compose.yml           # Local development setup
+├── routes.yaml                  # Host → backend route definitions (used when ROUTES_FILE is set)
 ├── .env.example                 # All supported environment variables with descriptions
 └── go.mod
 ```
@@ -183,13 +184,15 @@ Requests are routed to backends based on the `Host` header:
 
 ### Pass-through for Unconfigured Hosts
 
-If a host is **not defined** in the config (e.g. `app3.test.com`), the gateway:
+This behavior is **only active when `ALLOW_PASSTHROUGH=true`**. When false (default), unknown hosts receive `502 Bad Gateway`.
+
+If a host is **not defined** in the config (e.g. `app3.test.com`) and pass-through is enabled, the gateway:
 
 1. **Skips rate limiting** — no check is made to the Rate Limiter Service
 2. **Proxies the request directly** to `http://app3.test.com` as-is
 
 ```
-Request: app3.test.com  (not in config)
+Request: app3.test.com  (not in config, ALLOW_PASSTHROUGH=true)
         │
         ▼
 Rate Limit Middleware → skipped (host not in routes)
@@ -211,10 +214,11 @@ All configuration is provided via environment variables.
 | `PORT` | `8080` | Port the gateway listens on |
 | `LOG_LEVEL` | `info` | Log verbosity: `debug`, `info`, `warn`, `error` |
 | `RATE_LIMITER_URL` | `http://localhost:9090` | Base URL of the Rate Limiter Service |
-| `APP1_HOST` | `app1.test.com` | Hostname for app1 |
-| `APP1_BACKEND` | `http://app1-service` | Backend URL for app1 |
-| `APP2_HOST` | `app2.test.com` | Hostname for app2 |
-| `APP2_BACKEND` | `http://app2-service` | Backend URL for app2 |
+| `ROUTES_FILE` | _(empty)_ | Path to a YAML routes file (preferred); when set, `APP*` vars are ignored |
+| `APP1_HOST` | `app1.test.com` | Hostname for app1 (used only when `ROUTES_FILE` is not set) |
+| `APP1_BACKEND` | `http://app1-service` | Backend URL for app1 (used only when `ROUTES_FILE` is not set) |
+| `APP2_HOST` | `app2.test.com` | Hostname for app2 (used only when `ROUTES_FILE` is not set) |
+| `APP2_BACKEND` | `http://app2-service` | Backend URL for app2 (used only when `ROUTES_FILE` is not set) |
 | `ALLOW_PASSTHROUGH` | `false` | If `true`, unknown hosts are proxied directly; if `false`, they get 502 |
 | `TLS_CERT_FILE` | _(empty)_ | Path to TLS certificate (enables HTTPS when set with key) |
 | `TLS_KEY_FILE` | _(empty)_ | Path to TLS private key (enables HTTPS when set with cert) |
@@ -349,8 +353,8 @@ The Dockerfile uses a two-stage build:
 
 | Stage | Base Image | Purpose |
 |---|---|---|
-| `builder` | `golang:1.22-alpine` | Compiles the Go binary |
-| runtime | `alpine:3.20` | Runs only the binary (~10MB final image) |
+| `builder` | `golang:1.26-alpine` | Compiles the Go binary |
+| runtime | `alpine:3.21` | Runs only the binary (~10MB final image) |
 
 Key build flags used:
 - `CGO_ENABLED=0` — fully static binary, no C dependencies
@@ -457,21 +461,19 @@ go vet ./...
 
 ### Adding a new backend
 
-1. Add environment variables for the new app:
+Edit `routes.yaml` and add an entry — no code change needed:
 
-```bash
-export APP3_HOST=app3.test.com
-export APP3_BACKEND=http://app3-service
+```yaml
+routes:
+  app1.example.com: http://app1-service
+  app2.example.com: http://app2-service
+  app3.example.com: http://app3-service   # new
 ```
 
-2. Register the route in `config/config.go`:
+Make sure `ROUTES_FILE` points to this file:
 
-```go
-Routes: map[string]string{
-    getEnv("APP1_HOST", "app1.test.com"): getEnv("APP1_BACKEND", "http://app1-service"),
-    getEnv("APP2_HOST", "app2.test.com"): getEnv("APP2_BACKEND", "http://app2-service"),
-    getEnv("APP3_HOST", "app3.test.com"): getEnv("APP3_BACKEND", "http://app3-service"), // new
-},
+```bash
+export ROUTES_FILE=./routes.yaml
 ```
 
 ---
