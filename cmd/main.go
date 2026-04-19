@@ -14,7 +14,6 @@ import (
 	"api-gateway/client"
 	"api-gateway/config"
 	"api-gateway/middleware"
-	"api-gateway/router"
 )
 
 func main() {
@@ -36,7 +35,7 @@ func main() {
 	rl := client.NewRateLimiterClient(cfg.RateLimiterURL)
 
 	// Build handler chain (outermost → innermost):
-	// Recovery → RequestID → SecurityHeaders → Logger → Metrics → Timeout → MaxBodySize → RateLimit → Router
+	// Recovery → RequestID → SecurityHeaders → Logger → Metrics → Timeout → MaxBodySize → RateLimit
 	handler := middleware.Recovery(
 		middleware.RequestID(
 			middleware.SecurityHeaders(
@@ -44,9 +43,7 @@ func main() {
 					middleware.Metrics(
 						middleware.Timeout(cfg.RequestTimeout,
 							middleware.MaxBodySize(cfg.MaxBodyBytes,
-								middleware.RateLimit(rl,
-								router.New(cfg.Routes, cfg.AllowPassthrough),
-							),
+								middleware.RateLimit(rl),
 							),
 						),
 					),
