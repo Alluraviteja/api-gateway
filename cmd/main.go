@@ -44,9 +44,9 @@ func main() {
 					middleware.Metrics(
 						middleware.Timeout(cfg.RequestTimeout,
 							middleware.MaxBodySize(cfg.MaxBodyBytes,
-								middleware.RateLimit(rl, cfg.Routes,
-									router.New(cfg.Routes, cfg.AllowPassthrough),
-								),
+								middleware.RateLimit(rl,
+								router.New(cfg.Routes, cfg.AllowPassthrough),
+							),
 							),
 						),
 					),

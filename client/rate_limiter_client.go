@@ -16,14 +16,32 @@ type RateLimiterClient struct {
 }
 
 type checkRequest struct {
-	ClientID string `json:"clientId"`
-	AppID    string `json:"appId"`
-	Endpoint string `json:"endpoint"`
+	ServiceName string `json:"serviceName"`
+	ClientIP    string `json:"clientIp"`
+	RequestPath string `json:"requestPath"`
+	HTTPMethod  string `json:"httpMethod"`
+}
+
+// CheckResult holds the parsed response from the Rate Limiter Service.
+type CheckResult struct {
+	Allowed        bool
+	ServiceURL     string
+	RetryAfterSecs int
 }
 
 type checkResponse struct {
-	Allowed bool   `json:"allowed"`
-	Reason  string `json:"reason,omitempty"`
+	ServiceName     string `json:"serviceName"`
+	ServiceURL      string `json:"serviceUrl"`
+	Allowed         bool   `json:"allowed"`
+	RemainingTokens int    `json:"remainingTokens"`
+	Reason          string `json:"reason"`
+}
+
+type errorResponse struct {
+	Status             string `json:"status"`
+	Code               int    `json:"code"`
+	Message            string `json:"message"`
+	RetryAfterSeconds  int    `json:"retryAfterSeconds"`
 }
 
 // NewRateLimiterClient creates a new client for the Rate Limiter Service.
@@ -42,35 +60,64 @@ func NewRateLimiterClient(baseURL string) *RateLimiterClient {
 }
 
 // IsAllowed checks with the Rate Limiter Service whether the request is permitted.
-func (c *RateLimiterClient) IsAllowed(clientID, appID, endpoint string) (bool, error) {
+// Returns a CheckResult containing allowed status, serviceUrl, and retryAfter seconds.
+// Fail-open: if the service is unreachable, allowed=true is returned.
+func (c *RateLimiterClient) IsAllowed(serviceName, clientIP, requestPath, httpMethod string) (CheckResult, error) {
 	payload := checkRequest{
-		ClientID: clientID,
-		AppID:    appID,
-		Endpoint: endpoint,
+		ServiceName: serviceName,
+		ClientIP:    clientIP,
+		RequestPath: requestPath,
+		HTTPMethod:  httpMethod,
 	}
 
 	body, err := json.Marshal(payload)
 	if err != nil {
-		return false, fmt.Errorf("marshal rate limit request: %w", err)
+		return CheckResult{Allowed: true}, fmt.Errorf("marshal rate limit request: %w", err)
 	}
 
-	resp, err := c.httpClient.Post(
-		c.baseURL+"/rate-limit/check",
-		"application/json",
-		bytes.NewReader(body),
-	)
+	req, err := http.NewRequest(http.MethodPost, c.baseURL+"/api/v1/ratelimit/check", bytes.NewReader(body))
 	if err != nil {
-		// Fail open: allow request if rate limiter is unreachable.
-		return true, fmt.Errorf("rate limiter unreachable: %w", err)
+		return CheckResult{Allowed: true}, fmt.Errorf("build rate limit request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return CheckResult{Allowed: true}, fmt.Errorf("rate limiter unreachable: %w", err)
 	}
 	defer resp.Body.Close()
 
-	var result checkResponse
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return true, fmt.Errorf("decode rate limit response: %w", err)
-	}
+	switch resp.StatusCode {
+	case http.StatusOK:
+		var result checkResponse
+		if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+			return CheckResult{Allowed: true}, fmt.Errorf("decode rate limit response: %w", err)
+		}
+		return CheckResult{
+			Allowed:    result.Allowed,
+			ServiceURL: result.ServiceURL,
+		}, nil
 
-	return result.Allowed, nil
+	case http.StatusTooManyRequests:
+		var errResp errorResponse
+		if err := json.NewDecoder(resp.Body).Decode(&errResp); err != nil {
+			return CheckResult{Allowed: false}, fmt.Errorf("decode 429 response: %w", err)
+		}
+		return CheckResult{
+			Allowed:        false,
+			RetryAfterSecs: errResp.RetryAfterSeconds,
+		}, nil
+
+	case http.StatusBadRequest:
+		var errResp errorResponse
+		if err := json.NewDecoder(resp.Body).Decode(&errResp); err != nil {
+			return CheckResult{Allowed: true}, fmt.Errorf("decode 400 response: %w", err)
+		}
+		return CheckResult{Allowed: true}, fmt.Errorf("bad request to rate limiter: %s", errResp.Message)
+
+	default:
+		return CheckResult{Allowed: true}, fmt.Errorf("unexpected rate limiter status: %d", resp.StatusCode)
+	}
 }
 
 // Ping checks whether the Rate Limiter Service is reachable.

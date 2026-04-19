@@ -47,11 +47,6 @@ func Load() *Config {
 
 	if cfg.RoutesFile != "" {
 		cfg.Routes = loadRoutesFromFile(cfg.RoutesFile)
-	} else {
-		cfg.Routes = map[string]string{
-			getEnv("APP1_HOST", "app1.test.com"): getEnv("APP1_BACKEND", "http://app1-service"),
-			getEnv("APP2_HOST", "app2.test.com"): getEnv("APP2_BACKEND", "http://app2-service"),
-		}
 	}
 
 	return cfg
@@ -83,10 +78,6 @@ func loadRoutesFromFile(path string) map[string]string {
 func (c *Config) Validate() error {
 	if c.Port == "" {
 		return fmt.Errorf("PORT must not be empty")
-	}
-
-	if len(c.Routes) == 0 {
-		return fmt.Errorf("no routes configured: set ROUTES_FILE or APP1_HOST/APP1_BACKEND env vars")
 	}
 
 	if _, err := url.ParseRequestURI(c.RateLimiterURL); err != nil {
