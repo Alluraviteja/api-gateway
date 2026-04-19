@@ -31,6 +31,8 @@ The API Gateway sits in front of multiple backend services (`app1.test.com`, `ap
 
 ## Architecture
 
+![Architecture](docs/architecture.svg)
+
 ```
                           ┌─────────────────────┐
                           │   Rate Limiter Svc  │
