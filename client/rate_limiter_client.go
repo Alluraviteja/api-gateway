@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"time"
 )
@@ -81,6 +82,7 @@ func (c *RateLimiterClient) IsAllowed(serviceIdentifier, clientIP, requestPath, 
 	}
 	req.Header.Set("Content-Type", "application/json")
 
+	slog.Debug("calling rate limiter", "serviceIdentifier", serviceIdentifier, "clientIP", clientIP, "path", requestPath, "method", httpMethod)
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return CheckResult{Allowed: true}, fmt.Errorf("rate limiter unreachable: %w", err)
