@@ -16,10 +16,10 @@ type RateLimiterClient struct {
 }
 
 type checkRequest struct {
-	ServiceName string `json:"serviceName"`
-	ClientIP    string `json:"clientIp"`
-	RequestPath string `json:"requestPath"`
-	HTTPMethod  string `json:"httpMethod"`
+	ServiceIdentifier string `json:"serviceIdentifier"`
+	ClientIP          string `json:"clientIp"`
+	RequestPath       string `json:"requestPath"`
+	HTTPMethod        string `json:"httpMethod"`
 }
 
 // CheckResult holds the parsed response from the Rate Limiter Service.
@@ -62,12 +62,12 @@ func NewRateLimiterClient(baseURL string) *RateLimiterClient {
 // IsAllowed checks with the Rate Limiter Service whether the request is permitted.
 // Returns a CheckResult containing allowed status, serviceUrl, and retryAfter seconds.
 // Fail-open: if the service is unreachable, allowed=true is returned.
-func (c *RateLimiterClient) IsAllowed(serviceName, clientIP, requestPath, httpMethod string) (CheckResult, error) {
+func (c *RateLimiterClient) IsAllowed(serviceIdentifier, clientIP, requestPath, httpMethod string) (CheckResult, error) {
 	payload := checkRequest{
-		ServiceName: serviceName,
-		ClientIP:    clientIP,
-		RequestPath: requestPath,
-		HTTPMethod:  httpMethod,
+		ServiceIdentifier: serviceIdentifier,
+		ClientIP:          clientIP,
+		RequestPath:       requestPath,
+		HTTPMethod:        httpMethod,
 	}
 
 	body, err := json.Marshal(payload)

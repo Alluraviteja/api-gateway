@@ -3,6 +3,7 @@ package middleware
 import (
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"strings"
 	"sync"
@@ -17,24 +18,23 @@ var (
 )
 
 // RateLimit checks the Rate Limiter Service before forwarding the request.
-// If the response contains a serviceUrl, the request is proxied directly to it.
-// If not, next is called (passthrough / router fallback).
-func RateLimit(rl *client.RateLimiterClient, next http.Handler) http.Handler {
+// The rate limiter response must include a serviceUrl; if absent, 502 is returned.
+func RateLimit(rl *client.RateLimiterClient) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		clientIP := r.Header.Get("X-Client-ID")
 		if clientIP == "" {
 			clientIP = remoteIP(r)
 		}
 
-		serviceName := resolveServiceName(r)
+		serviceIdentifier := resolveServiceIdentifier(r)
 
-		result, err := rl.IsAllowed(serviceName, clientIP, r.URL.Path, r.Method)
+		result, err := rl.IsAllowed(serviceIdentifier, clientIP, r.URL.Path, r.Method)
 		if err != nil {
 			slog.Warn("rate limiter error", "client", clientIP, "error", err)
 		}
 
 		if !result.Allowed {
-			slog.Info("request rate limited", "client", clientIP, "host", r.Host, "path", r.URL.Path)
+			slog.Info("request rate limited", "client", clientIP, "service", serviceIdentifier, "path", r.URL.Path)
 			if result.RetryAfterSecs > 0 {
 				w.Header().Set("Retry-After", fmt.Sprintf("%d", result.RetryAfterSecs))
 			}
@@ -42,19 +42,19 @@ func RateLimit(rl *client.RateLimiterClient, next http.Handler) http.Handler {
 			return
 		}
 
-		if result.ServiceURL != "" {
-			h, err := getOrCreateProxy(result.ServiceURL)
-			if err != nil {
-				slog.Error("failed to create proxy", "serviceUrl", result.ServiceURL, "error", err)
-				http.Error(w, "bad gateway", http.StatusBadGateway)
-				return
-			}
-			h.ServeHTTP(w, r)
+		if result.ServiceURL == "" {
+			slog.Warn("no serviceUrl in rate limiter response", "service", serviceIdentifier)
+			http.Error(w, "service not found", http.StatusBadGateway)
 			return
 		}
 
-		// No serviceUrl returned (e.g. no app registered) — fall through to router.
-		next.ServeHTTP(w, r)
+		h, err := getOrCreateProxy(result.ServiceURL)
+		if err != nil {
+			slog.Error("failed to create proxy", "serviceUrl", result.ServiceURL, "error", err)
+			http.Error(w, "bad gateway", http.StatusBadGateway)
+			return
+		}
+		h.ServeHTTP(w, r)
 	})
 }
 
@@ -73,23 +73,26 @@ func getOrCreateProxy(serviceURL string) (http.Handler, error) {
 	return h, nil
 }
 
-// resolveServiceName determines the service name from the request.
-// Priority:
-//  1. Subdomain from Host header (e.g. "personal-website.example.com" -> "personal-website")
-//  2. X-Service-Name header (e.g. when calling via IP like server_ip:8080)
-func resolveServiceName(r *http.Request) string {
+// resolveServiceIdentifier returns a single value to identify the service:
+//   - Subdomain from Host header (e.g. "personal-website.example.com" → "personal-website")
+//   - Port from Host header if request is to an IP (e.g. "5.78.139.110:8085" → "8085")
+func resolveServiceIdentifier(r *http.Request) string {
 	host := r.Host
-	// Strip port if present.
+	port := ""
 	if idx := strings.LastIndex(host, ":"); idx != -1 {
+		port = host[idx+1:]
 		host = host[:idx]
+	}
+	// IP address — use port as the identifier.
+	if net.ParseIP(host) != nil {
+		return port
 	}
 	// Use subdomain if host has 3+ parts (subdomain.domain.tld).
 	parts := strings.Split(host, ".")
 	if len(parts) >= 3 {
 		return parts[0]
 	}
-	// Fall back to X-Service-Name header.
-	return r.Header.Get("X-Service-Name")
+	return ""
 }
 
 // remoteIP extracts the client IP, respecting X-Forwarded-For.
