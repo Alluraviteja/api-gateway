@@ -28,14 +28,24 @@ func RateLimit(rl *client.RateLimiterClient) http.Handler {
 
 		serviceIdentifier := resolveServiceIdentifier(r)
 
-		slog.Debug("incoming request", "client", clientIP, "service", serviceIdentifier, "method", r.Method, "path", r.URL.Path)
 		result, err := rl.IsAllowed(serviceIdentifier, clientIP, r.URL.Path, r.Method)
 		if err != nil {
-			slog.Warn("rate limiter error", "client", clientIP, "error", err)
+			slog.Error("rate limiter error",
+				"error", err,
+				"serviceIdentifier", serviceIdentifier,
+				"clientIp", clientIP,
+				"requestPath", r.URL.Path,
+				"httpMethod", r.Method,
+			)
 		}
 
 		if !result.Allowed {
-			slog.Info("request rate limited", "client", clientIP, "service", serviceIdentifier, "path", r.URL.Path)
+			slog.Warn("request rate limited",
+				"serviceIdentifier", serviceIdentifier,
+				"clientIp", clientIP,
+				"requestPath", r.URL.Path,
+				"httpMethod", r.Method,
+			)
 			if result.RetryAfterSecs > 0 {
 				w.Header().Set("Retry-After", fmt.Sprintf("%d", result.RetryAfterSecs))
 			}
@@ -44,14 +54,26 @@ func RateLimit(rl *client.RateLimiterClient) http.Handler {
 		}
 
 		if result.ServiceURL == "" {
-			slog.Warn("no serviceUrl in rate limiter response", "service", serviceIdentifier)
+			slog.Error("no serviceUrl in rate limiter response",
+				"serviceIdentifier", serviceIdentifier,
+				"clientIp", clientIP,
+				"requestPath", r.URL.Path,
+				"httpMethod", r.Method,
+			)
 			http.Error(w, "service not found", http.StatusBadGateway)
 			return
 		}
 
 		h, err := getOrCreateProxy(result.ServiceURL)
 		if err != nil {
-			slog.Error("failed to create proxy", "serviceUrl", result.ServiceURL, "error", err)
+			slog.Error("failed to create proxy",
+				"serviceUrl", result.ServiceURL,
+				"error", err,
+				"serviceIdentifier", serviceIdentifier,
+				"clientIp", clientIP,
+				"requestPath", r.URL.Path,
+				"httpMethod", r.Method,
+			)
 			http.Error(w, "bad gateway", http.StatusBadGateway)
 			return
 		}
