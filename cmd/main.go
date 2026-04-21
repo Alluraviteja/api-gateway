@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -67,6 +68,13 @@ func main() {
 		IdleTimeout:  60 * time.Second,
 	}
 
+	// Bind the port before starting so we can log a confirmed "started" message.
+	ln, err := net.Listen("tcp", ":"+cfg.Port)
+	if err != nil {
+		slog.Error("failed to bind port", "port", cfg.Port, "error", err)
+		os.Exit(1)
+	}
+
 	// Start server in background.
 	go func() {
 		if cfg.TLSEnabled() {
@@ -80,13 +88,13 @@ func main() {
 				os.Exit(1)
 			}
 		} else {
-			slog.Info("API Gateway starting", "port", cfg.Port)
-			if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			if err := srv.Serve(ln); err != nil && err != http.ErrServerClosed {
 				slog.Error("server error", "error", err)
 				os.Exit(1)
 			}
 		}
 	}()
+	slog.Info("API Gateway started", "port", cfg.Port)
 
 	// Graceful shutdown on SIGINT/SIGTERM.
 	quit := make(chan os.Signal, 1)
