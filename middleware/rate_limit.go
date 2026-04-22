@@ -28,7 +28,7 @@ func RateLimit(rl *client.RateLimiterClient) http.Handler {
 
 		serviceIdentifier := resolveServiceIdentifier(r)
 
-		result, err := rl.IsAllowed(serviceIdentifier, clientIP, r.URL.Path, r.Method)
+		result, err := rl.IsAllowed(serviceIdentifier, clientIP, r.URL.Path, r.Method, "")
 		if err != nil {
 			slog.Error("rate limiter error",
 				"error", err,

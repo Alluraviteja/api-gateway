@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net"
 	"net/http"
@@ -59,6 +60,7 @@ func main() {
 	mux.Handle("/readyz", readyzHandler(rl))
 	mux.Handle("/healthz", livezHandler()) // alias for backward compatibility
 	mux.Handle("/api/v1/ping", pingHandler(rl))
+	mux.Handle("/api/v1/ratelimit/check", rateLimitCheckHandler(rl))
 	mux.Handle("/metrics", metricsHandler(cfg.MetricsToken))
 	mux.Handle("/", handler)
 
@@ -147,6 +149,60 @@ func pingHandler(rl *client.RateLimiterClient) http.Handler {
 		json.NewEncoder(w).Encode(map[string]string{
 			"gateway":     "up",
 			"rateLimiter": rateLimiterStatus,
+		})
+	})
+}
+
+// rateLimitCheckHandler exposes POST /api/v1/ratelimit/check on the gateway.
+// It forwards the check to the Rate Limiter Service and mirrors its response.
+// traceId and Authorization are optional.
+func rateLimitCheckHandler(rl *client.RateLimiterClient) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		var req struct {
+			ServiceIdentifier string `json:"serviceIdentifier"`
+			ClientIP          string `json:"clientIp"`
+			RequestPath       string `json:"requestPath"`
+			HTTPMethod        string `json:"httpMethod"`
+			TraceID           string `json:"traceId"`
+		}
+
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "invalid request body", http.StatusBadRequest)
+			return
+		}
+
+		if req.ServiceIdentifier == "" || req.ClientIP == "" || req.RequestPath == "" || req.HTTPMethod == "" {
+			http.Error(w, "serviceIdentifier, clientIp, requestPath, and httpMethod are required", http.StatusBadRequest)
+			return
+		}
+
+		result, err := rl.IsAllowed(req.ServiceIdentifier, req.ClientIP, req.RequestPath, req.HTTPMethod, req.TraceID)
+		if err != nil {
+			slog.Error("rate limit check error", "error", err, "traceId", req.TraceID)
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+
+		if !result.Allowed {
+			if result.RetryAfterSecs > 0 {
+				w.Header().Set("Retry-After", fmt.Sprintf("%d", result.RetryAfterSecs))
+			}
+			w.WriteHeader(http.StatusTooManyRequests)
+			json.NewEncoder(w).Encode(map[string]any{
+				"allowed":           false,
+				"retryAfterSeconds": result.RetryAfterSecs,
+			})
+			return
+		}
+
+		json.NewEncoder(w).Encode(map[string]any{
+			"allowed":    true,
+			"serviceUrl": result.ServiceURL,
 		})
 	})
 }

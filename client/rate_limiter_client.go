@@ -20,6 +20,7 @@ type checkRequest struct {
 	ClientIP          string `json:"clientIp"`
 	RequestPath       string `json:"requestPath"`
 	HTTPMethod        string `json:"httpMethod"`
+	TraceID           string `json:"traceId,omitempty"`
 }
 
 // CheckResult holds the parsed response from the Rate Limiter Service.
@@ -62,12 +63,14 @@ func NewRateLimiterClient(baseURL string) *RateLimiterClient {
 // IsAllowed checks with the Rate Limiter Service whether the request is permitted.
 // Returns a CheckResult containing allowed status, serviceUrl, and retryAfter seconds.
 // Fail-open: if the service is unreachable, allowed=true is returned.
-func (c *RateLimiterClient) IsAllowed(serviceIdentifier, clientIP, requestPath, httpMethod string) (CheckResult, error) {
+// traceId is optional; pass "" to omit it.
+func (c *RateLimiterClient) IsAllowed(serviceIdentifier, clientIP, requestPath, httpMethod, traceID string) (CheckResult, error) {
 	payload := checkRequest{
 		ServiceIdentifier: serviceIdentifier,
 		ClientIP:          clientIP,
 		RequestPath:       requestPath,
 		HTTPMethod:        httpMethod,
+		TraceID:           traceID,
 	}
 
 	body, err := json.Marshal(payload)
