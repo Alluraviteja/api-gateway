@@ -72,6 +72,7 @@ jobs:
             docker run -d \
               --name api-gateway \
               --restart always \
+              --network ${{ secrets.DOCKER_NETWORK }} \
               -e PORT=${{ secrets.PORT }} \
               -e LOG_LEVEL=${{ secrets.LOG_LEVEL }} \
               -e RATE_LIMITER_URL=${{ secrets.RATE_LIMITER_URL }} \
@@ -93,10 +94,11 @@ jobs:
                 docker run -d \
                   --name api-gateway \
                   --restart always \
+                  --network ${{ secrets.DOCKER_NETWORK }} \
                   -e PORT=${{ secrets.PORT }} \
                   -e LOG_LEVEL=${{ secrets.LOG_LEVEL }} \
                   -e RATE_LIMITER_URL=${{ secrets.RATE_LIMITER_URL }} \
-                      -e MAX_BODY_MB=${{ secrets.MAX_BODY_MB }} \
+                  -e MAX_BODY_MB=${{ secrets.MAX_BODY_MB }} \
                   -e REQUEST_TIMEOUT_SECONDS=${{ secrets.REQUEST_TIMEOUT_SECONDS }} \
                   -e METRICS_TOKEN=${{ secrets.METRICS_TOKEN }} \
                   -p 8080:8080 \
