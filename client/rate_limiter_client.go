@@ -120,13 +120,13 @@ func (c *RateLimiterClient) IsAllowed(serviceIdentifier, clientIP, requestPath, 
 	}
 }
 
-// Ping checks whether the Rate Limiter Service is reachable.
-// Any HTTP response (including 4xx) means the server is up.
+// Ping checks whether the Rate Limiter Service is reachable via its /api/v1/ping endpoint.
+// Any HTTP response means the server is up; a connection error means it is down.
 func (c *RateLimiterClient) Ping() error {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodHead, c.baseURL, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/api/v1/ping", nil)
 	if err != nil {
 		return fmt.Errorf("build ping request: %w", err)
 	}
