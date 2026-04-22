@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"log/slog"
 	"net"
 	"net/http"
@@ -57,6 +58,7 @@ func main() {
 	mux.Handle("/livez", livezHandler())
 	mux.Handle("/readyz", readyzHandler(rl))
 	mux.Handle("/healthz", livezHandler()) // alias for backward compatibility
+	mux.Handle("/api/v1/ping", pingHandler(rl))
 	mux.Handle("/metrics", metricsHandler(cfg.MetricsToken))
 	mux.Handle("/", handler)
 
@@ -129,6 +131,23 @@ func readyzHandler(rl *client.RateLimiterClient) http.Handler {
 		}
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("ready"))
+	})
+}
+
+// pingHandler reports the gateway status and whether the Rate Limiter Service is reachable.
+func pingHandler(rl *client.RateLimiterClient) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		rateLimiterStatus := "up"
+		if err := rl.Ping(); err != nil {
+			slog.Warn("ping: rate limiter unreachable", "error", err)
+			rateLimiterStatus = "down"
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{
+			"gateway":     "up",
+			"rateLimiter": rateLimiterStatus,
+		})
 	})
 }
 
