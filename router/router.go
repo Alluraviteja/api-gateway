@@ -8,9 +8,8 @@ import (
 )
 
 // New builds an HTTP handler that routes requests to backends based on the Host header.
-// If allowPassthrough is true, unknown hosts are proxied directly to their origin.
-// If false, unknown hosts receive 502 Bad Gateway.
-func New(routes map[string]string, allowPassthrough bool) http.Handler {
+// Unknown hosts receive 502 Bad Gateway — use routes.yaml to register all valid hosts.
+func New(routes map[string]string) http.Handler {
 	handlers := make(map[string]http.Handler, len(routes))
 
 	for host, backend := range routes {
@@ -26,20 +25,8 @@ func New(routes map[string]string, allowPassthrough bool) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		h, ok := handlers[r.Host]
 		if !ok {
-			if !allowPassthrough {
-				slog.Warn("unknown host rejected", "host", r.Host)
-				http.Error(w, "unknown host", http.StatusBadGateway)
-				return
-			}
-
-			// Pass-through: proxy directly to the host as-is.
-			passthrough, err := proxy.NewReverseProxy("http://" + r.Host)
-			if err != nil {
-				http.Error(w, "bad gateway", http.StatusBadGateway)
-				return
-			}
-			slog.Info("passing through unconfigured host", "host", r.Host)
-			passthrough.ServeHTTP(w, r)
+			slog.Warn("unknown host rejected", "host", r.Host)
+			http.Error(w, "unknown host", http.StatusBadGateway)
 			return
 		}
 		h.ServeHTTP(w, r)

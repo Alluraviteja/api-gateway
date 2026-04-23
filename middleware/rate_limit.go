@@ -6,21 +6,21 @@ import (
 	"net"
 	"net/http"
 	"strings"
-	"sync"
 
 	"api-gateway/client"
-	"api-gateway/proxy"
 )
 
-var (
-	proxyMu    sync.Mutex
-	proxyCache = make(map[string]http.Handler)
-)
-
-// RateLimit checks the Rate Limiter Service before forwarding the request.
-// The rate limiter response must include a serviceUrl; if absent, 502 is returned.
-func RateLimit(rl *client.RateLimiterClient) http.Handler {
+// RateLimit checks the Rate Limiter Service before passing to next.
+// Skips the rate limiter if the request host is not in the routes map.
+// If the request is rate limited, it responds with 429 and stops.
+func RateLimit(rl *client.RateLimiterClient, routes map[string]string, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if _, ok := routes[r.Host]; !ok {
+			slog.Warn("host not in routes, rejecting", "host", r.Host)
+			http.Error(w, "unknown host", http.StatusBadGateway)
+			return
+		}
+
 		clientIP := r.Header.Get("X-Client-ID")
 		if clientIP == "" {
 			clientIP = remoteIP(r)
@@ -46,54 +46,22 @@ func RateLimit(rl *client.RateLimiterClient) http.Handler {
 				"requestPath", r.URL.Path,
 				"httpMethod", r.Method,
 			)
-			if result.RetryAfterSecs > 0 {
-				w.Header().Set("Retry-After", fmt.Sprintf("%d", result.RetryAfterSecs))
-			}
+			w.Header().Set("RateLimit-Limit", fmt.Sprintf("%d", result.Limit))
+			w.Header().Set("RateLimit-Remaining", "0")
+			w.Header().Set("RateLimit-Reset", fmt.Sprintf("%d", result.ResetAfterSeconds))
+			w.Header().Set("Retry-After", fmt.Sprintf("%d", result.RetryAfterSecs))
 			http.Error(w, "429 Too Many Requests", http.StatusTooManyRequests)
 			return
 		}
 
-		if result.ServiceURL == "" {
-			slog.Error("no serviceUrl in rate limiter response",
-				"serviceIdentifier", serviceIdentifier,
-				"clientIp", clientIP,
-				"requestPath", r.URL.Path,
-				"httpMethod", r.Method,
-			)
-			http.Error(w, "service not found", http.StatusBadGateway)
-			return
+		if result.Limit > 0 {
+			w.Header().Set("RateLimit-Limit", fmt.Sprintf("%d", result.Limit))
+			w.Header().Set("RateLimit-Remaining", fmt.Sprintf("%d", result.Remaining))
+			w.Header().Set("RateLimit-Reset", fmt.Sprintf("%d", result.ResetAfterSeconds))
 		}
 
-		h, err := getOrCreateProxy(result.ServiceURL)
-		if err != nil {
-			slog.Error("failed to create proxy",
-				"serviceUrl", result.ServiceURL,
-				"error", err,
-				"serviceIdentifier", serviceIdentifier,
-				"clientIp", clientIP,
-				"requestPath", r.URL.Path,
-				"httpMethod", r.Method,
-			)
-			http.Error(w, "bad gateway", http.StatusBadGateway)
-			return
-		}
-		h.ServeHTTP(w, r)
+		next.ServeHTTP(w, r)
 	})
-}
-
-// getOrCreateProxy returns a cached reverse proxy for the given backend URL.
-func getOrCreateProxy(serviceURL string) (http.Handler, error) {
-	proxyMu.Lock()
-	defer proxyMu.Unlock()
-	if h, ok := proxyCache[serviceURL]; ok {
-		return h, nil
-	}
-	h, err := proxy.NewReverseProxy(serviceURL)
-	if err != nil {
-		return nil, err
-	}
-	proxyCache[serviceURL] = h
-	return h, nil
 }
 
 // resolveServiceIdentifier returns a single value to identify the service:
@@ -106,11 +74,9 @@ func resolveServiceIdentifier(r *http.Request) string {
 		port = host[idx+1:]
 		host = host[:idx]
 	}
-	// IP address — use port as the identifier.
 	if net.ParseIP(host) != nil {
 		return port
 	}
-	// Use subdomain if host has 3+ parts (subdomain.domain.tld).
 	parts := strings.Split(host, ".")
 	if len(parts) >= 3 {
 		return parts[0]
