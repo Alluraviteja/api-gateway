@@ -59,6 +59,7 @@ jobs:
           key: ${{ secrets.SERVER_SSH_KEY }}
           source: routes.yaml
           target: /etc/gateway/
+          overwrite: true
 
       - name: Deploy to server
         uses: appleboy/ssh-action@v1.0.3
