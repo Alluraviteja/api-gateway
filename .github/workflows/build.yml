@@ -62,7 +62,7 @@ jobs:
             # Docker volume-mount can create routes.yaml as a directory if the file
             # didn't exist yet on the host; remove it so SCP can place a file there.
             if [ -d /etc/gateway/routes.yaml ]; then
-              sudo rm -rf /etc/gateway/routes.yaml
+              rm -rf /etc/gateway/routes.yaml
             fi
 
       - name: Copy routes.yaml to server
