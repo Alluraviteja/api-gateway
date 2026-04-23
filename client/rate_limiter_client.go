@@ -25,24 +25,30 @@ type checkRequest struct {
 
 // CheckResult holds the parsed response from the Rate Limiter Service.
 type CheckResult struct {
-	Allowed        bool
-	ServiceURL     string
-	RetryAfterSecs int
+	Allowed           bool
+	Limit             int
+	Remaining         int
+	ResetAfterSeconds int
+	RetryAfterSecs    int
 }
 
 type checkResponse struct {
-	ServiceName     string `json:"serviceName"`
-	ServiceURL      string `json:"serviceUrl"`
-	Allowed         bool   `json:"allowed"`
-	RemainingTokens int    `json:"remainingTokens"`
-	Reason          string `json:"reason"`
+	Allowed           bool   `json:"allowed"`
+	Limit             int    `json:"limit"`
+	RemainingTokens   int    `json:"remainingTokens"`
+	ResetAfterSeconds int    `json:"resetAfterSeconds"`
+	ServiceName       string `json:"serviceName"`
+	ServiceURL        string `json:"serviceUrl"`
+	MatchedPattern    string `json:"matchedPattern"`
+	Timestamp         string `json:"timestamp"`
 }
 
 type errorResponse struct {
-	Status             string `json:"status"`
-	Code               int    `json:"code"`
-	Message            string `json:"message"`
-	RetryAfterSeconds  int    `json:"retryAfterSeconds"`
+	Error             string `json:"error"`
+	Code              int    `json:"code"`
+	Message           string `json:"message"`
+	RetryAfterSeconds int    `json:"retryAfterSeconds"`
+	Timestamp         string `json:"timestamp"`
 }
 
 // NewRateLimiterClient creates a new client for the Rate Limiter Service.
@@ -61,7 +67,6 @@ func NewRateLimiterClient(baseURL string) *RateLimiterClient {
 }
 
 // IsAllowed checks with the Rate Limiter Service whether the request is permitted.
-// Returns a CheckResult containing allowed status, serviceUrl, and retryAfter seconds.
 // Fail-open: if the service is unreachable, allowed=true is returned.
 // traceId is optional; pass "" to omit it.
 func (c *RateLimiterClient) IsAllowed(serviceIdentifier, clientIP, requestPath, httpMethod, traceID string) (CheckResult, error) {
@@ -97,8 +102,10 @@ func (c *RateLimiterClient) IsAllowed(serviceIdentifier, clientIP, requestPath, 
 			return CheckResult{Allowed: true}, fmt.Errorf("decode rate limit response: %w", err)
 		}
 		return CheckResult{
-			Allowed:    result.Allowed,
-			ServiceURL: result.ServiceURL,
+			Allowed:           result.Allowed,
+			Limit:             result.Limit,
+			Remaining:         result.RemainingTokens,
+			ResetAfterSeconds: result.ResetAfterSeconds,
 		}, nil
 
 	case http.StatusTooManyRequests:
@@ -107,9 +114,19 @@ func (c *RateLimiterClient) IsAllowed(serviceIdentifier, clientIP, requestPath, 
 			return CheckResult{Allowed: false}, fmt.Errorf("decode 429 response: %w", err)
 		}
 		return CheckResult{
-			Allowed:        false,
-			RetryAfterSecs: errResp.RetryAfterSeconds,
+			Allowed:           false,
+			Limit:             0,
+			Remaining:         0,
+			ResetAfterSeconds: errResp.RetryAfterSeconds,
+			RetryAfterSecs:    errResp.RetryAfterSeconds,
 		}, nil
+
+	case http.StatusNotFound:
+		var errResp errorResponse
+		if err := json.NewDecoder(resp.Body).Decode(&errResp); err != nil {
+			return CheckResult{Allowed: true}, fmt.Errorf("decode 404 response: %w", err)
+		}
+		return CheckResult{Allowed: true}, fmt.Errorf("service not registered in rate limiter: %s", errResp.Message)
 
 	case http.StatusBadRequest:
 		var errResp errorResponse
