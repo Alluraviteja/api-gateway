@@ -2,7 +2,9 @@ package router
 
 import (
 	"log/slog"
+	"net"
 	"net/http"
+	"strings"
 
 	"api-gateway/proxy"
 )
@@ -25,10 +27,33 @@ func New(routes map[string]string) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		h, ok := handlers[r.Host]
 		if !ok {
+			h, ok = handlers[hostKey(r.Host)]
+		}
+		if !ok {
 			slog.Warn("unknown host rejected", "host", r.Host)
 			http.Error(w, "unknown host", http.StatusBadGateway)
 			return
 		}
 		h.ServeHTTP(w, r)
 	})
+}
+
+// hostKey extracts a short key from the Host header for route lookup:
+//   - IP host (e.g. "5.78.139.110:8090") → port ("8090")
+//   - Named host with subdomain (e.g. "app.example.com") → subdomain ("app")
+//   - Anything else → empty string (no match)
+func hostKey(host string) string {
+	h, port, err := net.SplitHostPort(host)
+	if err != nil {
+		h = host
+		port = ""
+	}
+	if net.ParseIP(h) != nil {
+		return port
+	}
+	parts := strings.Split(h, ".")
+	if len(parts) >= 3 {
+		return parts[0]
+	}
+	return ""
 }

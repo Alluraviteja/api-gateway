@@ -15,7 +15,9 @@ import (
 // If the request is rate limited, it responds with 429 and stops.
 func RateLimit(rl *client.RateLimiterClient, routes map[string]string, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if _, ok := routes[r.Host]; !ok {
+		_, exactMatch := routes[r.Host]
+		_, keyMatch := routes[resolveServiceIdentifier(r)]
+		if !exactMatch && !keyMatch {
 			slog.Warn("host not in routes, rejecting", "host", r.Host)
 			http.Error(w, "unknown host", http.StatusBadGateway)
 			return
