@@ -51,6 +51,15 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+      - name: Copy routes.yaml to server
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          source: routes.yaml
+          target: /etc/gateway/
+
       - name: Deploy to server
         uses: appleboy/ssh-action@v1.0.3
         with:
@@ -79,6 +88,8 @@ jobs:
               -e MAX_BODY_MB=${{ secrets.MAX_BODY_MB }} \
               -e REQUEST_TIMEOUT_SECONDS=${{ secrets.REQUEST_TIMEOUT_SECONDS }} \
               -e METRICS_TOKEN=${{ secrets.METRICS_TOKEN }} \
+              -e ROUTES_FILE=/etc/gateway/routes.yaml \
+              -v /etc/gateway/routes.yaml:/etc/gateway/routes.yaml:ro \
               -p 8080:8080 \
               $IMAGE
 
@@ -101,6 +112,8 @@ jobs:
                   -e MAX_BODY_MB=${{ secrets.MAX_BODY_MB }} \
                   -e REQUEST_TIMEOUT_SECONDS=${{ secrets.REQUEST_TIMEOUT_SECONDS }} \
                   -e METRICS_TOKEN=${{ secrets.METRICS_TOKEN }} \
+                  -e ROUTES_FILE=/etc/gateway/routes.yaml \
+                  -v /etc/gateway/routes.yaml:/etc/gateway/routes.yaml:ro \
                   -p 8080:8080 \
                   $PREVIOUS_IMAGE
               else
