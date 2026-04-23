@@ -17,6 +17,7 @@ import (
 	"api-gateway/client"
 	"api-gateway/config"
 	"api-gateway/middleware"
+	"api-gateway/router"
 )
 
 func main() {
@@ -36,9 +37,10 @@ func main() {
 	})))
 
 	rl := client.NewRateLimiterClient(cfg.RateLimiterURL)
+	r := router.New(cfg.Routes)
 
 	// Build handler chain (outermost → innermost):
-	// Recovery → RequestID → SecurityHeaders → Logger → Metrics → Timeout → MaxBodySize → RateLimit
+	// Recovery → RequestID → SecurityHeaders → Logger → Metrics → Timeout → MaxBodySize → RateLimit → Router
 	handler := middleware.Recovery(
 		middleware.RequestID(
 			middleware.SecurityHeaders(
@@ -46,7 +48,7 @@ func main() {
 					middleware.Metrics(
 						middleware.Timeout(cfg.RequestTimeout,
 							middleware.MaxBodySize(cfg.MaxBodyBytes,
-								middleware.RateLimit(rl),
+								middleware.RateLimit(rl, cfg.Routes, r),
 							),
 						),
 					),
@@ -201,8 +203,7 @@ func rateLimitCheckHandler(rl *client.RateLimiterClient) http.Handler {
 		}
 
 		json.NewEncoder(w).Encode(map[string]any{
-			"allowed":    true,
-			"serviceUrl": result.ServiceURL,
+			"allowed": true,
 		})
 	})
 }

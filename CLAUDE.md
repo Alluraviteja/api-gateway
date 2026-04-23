@@ -73,7 +73,6 @@ Rate limit checks call `POST /rate-limit/check` on the Rate Limiter Service with
 | `PORT` | `8080` | Gateway listen port |
 | `RATE_LIMITER_URL` | `http://localhost:9090` | Rate Limiter Service URL |
 | `ROUTES_FILE` | (empty) | Path to YAML routes file |
-| `ALLOW_PASSTHROUGH` | `false` | Proxy unknown hosts instead of returning 502 |
 | `METRICS_TOKEN` | (empty) | Bearer token for `/metrics` (empty = open) |
 | `MAX_BODY_MB` | `10` | Max request body in MB |
 | `REQUEST_TIMEOUT_SECONDS` | `30` | Per-request timeout |
