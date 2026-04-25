@@ -21,6 +21,25 @@ type checkRequest struct {
 	RequestPath       string `json:"requestPath"`
 	HTTPMethod        string `json:"httpMethod"`
 	TraceID           string `json:"traceId,omitempty"`
+	DeviceType        string `json:"deviceType,omitempty"`
+	IsBot             bool   `json:"isBot"`
+	BotName           string `json:"botName,omitempty"`
+	Browser           string `json:"browser,omitempty"`
+	OS                string `json:"os,omitempty"`
+	RequestSize       int64  `json:"requestSize,omitempty"`
+	Referer           string `json:"referer,omitempty"`
+}
+
+// RequestMeta holds parsed request metadata to pass to IsAllowed.
+type RequestMeta struct {
+	TraceID     string
+	DeviceType  string
+	IsBot       bool
+	BotName     string
+	Browser     string
+	OS          string
+	RequestSize int64
+	Referer     string
 }
 
 // CheckResult holds the parsed response from the Rate Limiter Service.
@@ -68,14 +87,20 @@ func NewRateLimiterClient(baseURL string) *RateLimiterClient {
 
 // IsAllowed checks with the Rate Limiter Service whether the request is permitted.
 // Fail-open: if the service is unreachable, allowed=true is returned.
-// traceId is optional; pass "" to omit it.
-func (c *RateLimiterClient) IsAllowed(serviceIdentifier, clientIP, requestPath, httpMethod, traceID string) (CheckResult, error) {
+func (c *RateLimiterClient) IsAllowed(serviceIdentifier, clientIP, requestPath, httpMethod string, meta RequestMeta) (CheckResult, error) {
 	payload := checkRequest{
 		ServiceIdentifier: serviceIdentifier,
 		ClientIP:          clientIP,
 		RequestPath:       requestPath,
 		HTTPMethod:        httpMethod,
-		TraceID:           traceID,
+		TraceID:           meta.TraceID,
+		DeviceType:        meta.DeviceType,
+		IsBot:             meta.IsBot,
+		BotName:           meta.BotName,
+		Browser:           meta.Browser,
+		OS:                meta.OS,
+		RequestSize:       meta.RequestSize,
+		Referer:           meta.Referer,
 	}
 
 	body, err := json.Marshal(payload)

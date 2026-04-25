@@ -183,7 +183,7 @@ func rateLimitCheckHandler(rl *client.RateLimiterClient) http.Handler {
 			return
 		}
 
-		result, err := rl.IsAllowed(req.ServiceIdentifier, req.ClientIP, req.RequestPath, req.HTTPMethod, req.TraceID)
+		result, err := rl.IsAllowed(req.ServiceIdentifier, req.ClientIP, req.RequestPath, req.HTTPMethod, client.RequestMeta{TraceID: req.TraceID})
 		if err != nil {
 			slog.Error("rate limit check error", "error", err, "traceId", req.TraceID)
 		}
