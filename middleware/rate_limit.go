@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"api-gateway/client"
+	ua "github.com/mileusna/useragent"
 )
 
 // RateLimit checks the Rate Limiter Service before passing to next.
@@ -29,8 +30,9 @@ func RateLimit(rl *client.RateLimiterClient, routes map[string]string, next http
 		}
 
 		serviceIdentifier := resolveServiceIdentifier(r)
+		meta := buildRequestMeta(r)
 
-		result, err := rl.IsAllowed(serviceIdentifier, clientIP, r.URL.Path, r.Method, "")
+		result, err := rl.IsAllowed(serviceIdentifier, clientIP, r.URL.Path, r.Method, meta)
 		if err != nil {
 			slog.Error("rate limiter error",
 				"error", err,
@@ -95,4 +97,41 @@ func remoteIP(r *http.Request) string {
 		return r.RemoteAddr[:idx]
 	}
 	return r.RemoteAddr
+}
+
+// buildRequestMeta parses the request and returns structured metadata for the rate limiter.
+func buildRequestMeta(r *http.Request) client.RequestMeta {
+	parsed := ua.Parse(r.Header.Get("User-Agent"))
+	return client.RequestMeta{
+		DeviceType:  deviceType(parsed),
+		IsBot:       parsed.Bot,
+		BotName:     botName(parsed),
+		Browser:     parsed.Name,
+		OS:          parsed.OS,
+		RequestSize: r.ContentLength,
+		Referer:     r.Header.Get("Referer"),
+	}
+}
+
+func deviceType(parsed ua.UserAgent) string {
+	if parsed.Bot {
+		return "bot"
+	}
+	if parsed.Mobile {
+		return "mobile"
+	}
+	if parsed.Tablet {
+		return "tablet"
+	}
+	if parsed.Desktop {
+		return "desktop"
+	}
+	return "unknown"
+}
+
+func botName(parsed ua.UserAgent) string {
+	if parsed.Bot {
+		return parsed.Name
+	}
+	return ""
 }
