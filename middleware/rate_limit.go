@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"fmt"
+	"html/template"
 	"log/slog"
 	"net"
 	"net/http"
@@ -54,7 +55,13 @@ func RateLimit(rl *client.RateLimiterClient, routes map[string]string, next http
 			w.Header().Set("RateLimit-Remaining", "0")
 			w.Header().Set("RateLimit-Reset", fmt.Sprintf("%d", result.ResetAfterSeconds))
 			w.Header().Set("Retry-After", fmt.Sprintf("%d", result.RetryAfterSecs))
-			http.Error(w, "429 Too Many Requests", http.StatusTooManyRequests)
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			w.WriteHeader(http.StatusTooManyRequests)
+			retryAfter := result.RetryAfterSecs
+			if retryAfter <= 0 {
+				retryAfter = result.ResetAfterSeconds
+			}
+			rateLimitTmpl.Execute(w, retryAfter) //nolint:errcheck
 			return
 		}
 
@@ -135,3 +142,229 @@ func botName(parsed ua.UserAgent) string {
 	}
 	return ""
 }
+
+var rateLimitTmpl = template.Must(template.New("ratelimit").Parse(`<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>429 — Too Many Requests</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 16px;
+      background: linear-gradient(135deg, #0f0c29, #302b63, #24243e);
+      color: #fff;
+    }
+
+    .card {
+      background: rgba(255, 255, 255, 0.06);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      border-radius: 24px;
+      padding: 48px 40px 40px;
+      text-align: center;
+      width: 100%;
+      max-width: 460px;
+      box-shadow: 0 24px 64px rgba(0, 0, 0, 0.4);
+    }
+
+    .badge {
+      display: inline-block;
+      background: rgba(249, 115, 22, 0.18);
+      color: #fb923c;
+      border: 1px solid rgba(249, 115, 22, 0.35);
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      padding: 4px 14px;
+      margin-bottom: 24px;
+    }
+
+    h1 {
+      font-size: clamp(22px, 5vw, 28px);
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      margin-bottom: 12px;
+      line-height: 1.2;
+    }
+
+    .subtitle {
+      color: rgba(255,255,255,0.5);
+      font-size: 15px;
+      line-height: 1.6;
+      margin-bottom: 36px;
+    }
+
+    /* Timer ring */
+    .timer-wrap {
+      position: relative;
+      width: 120px;
+      height: 120px;
+      margin: 0 auto 32px;
+    }
+    .timer-wrap svg {
+      transform: rotate(-90deg);
+      width: 100%;
+      height: 100%;
+    }
+    .ring-bg {
+      fill: none;
+      stroke: rgba(255,255,255,0.08);
+      stroke-width: 6;
+    }
+    .ring-fg {
+      fill: none;
+      stroke: url(#grad);
+      stroke-width: 6;
+      stroke-linecap: round;
+      stroke-dasharray: 326.73;
+      stroke-dashoffset: 0;
+      transition: stroke-dashoffset 1s linear;
+    }
+    .timer-inner {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 2px;
+    }
+    .timer-seconds {
+      font-size: 32px;
+      font-weight: 800;
+      line-height: 1;
+      background: linear-gradient(135deg, #fb923c, #f43f5e);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    .timer-unit {
+      font-size: 11px;
+      font-weight: 500;
+      color: rgba(255,255,255,0.35);
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+    }
+
+    /* Ready state */
+    .timer-seconds.done { font-size: 26px; }
+
+    /* Refresh button */
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      background: linear-gradient(135deg, #f97316, #ef4444);
+      color: #fff;
+      font-size: 15px;
+      font-weight: 600;
+      padding: 14px 32px;
+      border-radius: 12px;
+      border: none;
+      cursor: pointer;
+      text-decoration: none;
+      box-shadow: 0 4px 20px rgba(249, 115, 22, 0.4);
+      transition: transform 0.15s ease, box-shadow 0.15s ease, opacity 0.15s ease;
+      opacity: 0;
+      pointer-events: none;
+    }
+    .btn.visible {
+      opacity: 1;
+      pointer-events: auto;
+    }
+    .btn:hover { transform: translateY(-2px); box-shadow: 0 8px 28px rgba(249, 115, 22, 0.55); }
+    .btn:active { transform: translateY(0); }
+
+    .btn svg { width: 16px; height: 16px; flex-shrink: 0; }
+
+    .hint {
+      margin-top: 16px;
+      font-size: 13px;
+      color: rgba(255,255,255,0.25);
+    }
+
+    @media (max-width: 480px) {
+      .card { padding: 36px 24px 32px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="badge">429 &mdash; Rate Limited</div>
+    <h1>Too many requests</h1>
+    <p class="subtitle">You&rsquo;ve hit the request limit for this service.<br>Please wait for the timer to reset before trying again.</p>
+
+    <div class="timer-wrap">
+      <svg viewBox="0 0 110 110" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <linearGradient id="grad" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" stop-color="#fb923c"/>
+            <stop offset="100%" stop-color="#f43f5e"/>
+          </linearGradient>
+        </defs>
+        <circle class="ring-bg" cx="55" cy="55" r="52"/>
+        <circle class="ring-fg" id="ring" cx="55" cy="55" r="52"/>
+      </svg>
+      <div class="timer-inner">
+        <span class="timer-seconds" id="countdown">{{.}}</span>
+        <span class="timer-unit" id="unit">sec</span>
+      </div>
+    </div>
+
+    <button class="btn" id="refreshBtn" onclick="window.location.reload()">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M21 2v6h-6"/><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M3 22v-6h6"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/>
+      </svg>
+      Try again
+    </button>
+
+    <p class="hint" id="hint">Button will appear when ready</p>
+  </div>
+
+  <script>
+    (function () {
+      var total = {{.}};
+      var remaining = total;
+      var circumference = 2 * Math.PI * 52;
+      var ring = document.getElementById('ring');
+      var label = document.getElementById('countdown');
+      var unit = document.getElementById('unit');
+      var btn = document.getElementById('refreshBtn');
+      var hint = document.getElementById('hint');
+
+      ring.style.strokeDasharray = circumference;
+      ring.style.strokeDashoffset = 0;
+
+      var interval = setInterval(function () {
+        remaining--;
+        if (remaining < 0) remaining = 0;
+
+        label.textContent = remaining;
+        var offset = circumference * (1 - remaining / total);
+        ring.style.strokeDashoffset = offset;
+
+        if (remaining <= 0) {
+          clearInterval(interval);
+          label.textContent = '✓';
+          label.classList.add('done');
+          unit.textContent = 'ready';
+          btn.classList.add('visible');
+          hint.style.display = 'none';
+        }
+      }, 1000);
+    })();
+  </script>
+</body>
+</html>
+`))
