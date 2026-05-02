@@ -1,6 +1,8 @@
 package middleware
 
 import (
+	"crypto/rand"
+	"encoding/base64"
 	"fmt"
 	"html/template"
 	"log/slog"
@@ -11,6 +13,19 @@ import (
 	"api-gateway/client"
 	ua "github.com/mileusna/useragent"
 )
+
+type rateLimitData struct {
+	Seconds int
+	Nonce   string
+}
+
+func generateNonce() string {
+	b := make([]byte, 16)
+	if _, err := rand.Read(b); err != nil {
+		return "fallback-nonce"
+	}
+	return base64.StdEncoding.EncodeToString(b)
+}
 
 // RateLimit checks the Rate Limiter Service before passing to next.
 // Skips the rate limiter if the request host is not in the routes map.
@@ -51,17 +66,24 @@ func RateLimit(rl *client.RateLimiterClient, routes map[string]string, next http
 				"requestPath", r.URL.Path,
 				"httpMethod", r.Method,
 			)
-			w.Header().Set("RateLimit-Limit", fmt.Sprintf("%d", result.Limit))
-			w.Header().Set("RateLimit-Remaining", "0")
-			w.Header().Set("RateLimit-Reset", fmt.Sprintf("%d", result.ResetAfterSeconds))
-			w.Header().Set("Retry-After", fmt.Sprintf("%d", result.RetryAfterSecs))
-			w.Header().Set("Content-Type", "text/html; charset=utf-8")
-			w.WriteHeader(http.StatusTooManyRequests)
 			retryAfter := result.RetryAfterSecs
 			if retryAfter <= 0 {
 				retryAfter = result.ResetAfterSeconds
 			}
-			rateLimitTmpl.Execute(w, retryAfter) //nolint:errcheck
+			nonce := generateNonce()
+			w.Header().Set("RateLimit-Limit", fmt.Sprintf("%d", result.Limit))
+			w.Header().Set("RateLimit-Remaining", "0")
+			w.Header().Set("RateLimit-Reset", fmt.Sprintf("%d", result.ResetAfterSeconds))
+			w.Header().Set("Retry-After", fmt.Sprintf("%d", retryAfter))
+			w.Header().Set("Cache-Control", "no-store")
+			// Override the global CSP to allow the nonce-tagged inline style and script
+			// on this error page. 'unsafe-inline' is NOT used; only the nonce is trusted.
+			w.Header().Set("Content-Security-Policy", fmt.Sprintf(
+				"default-src 'none'; style-src 'nonce-%s'; script-src 'nonce-%s'", nonce, nonce,
+			))
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			w.WriteHeader(http.StatusTooManyRequests)
+			rateLimitTmpl.Execute(w, rateLimitData{Seconds: retryAfter, Nonce: nonce}) //nolint:errcheck
 			return
 		}
 
@@ -149,7 +171,7 @@ var rateLimitTmpl = template.Must(template.New("ratelimit").Parse(`<!DOCTYPE htm
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>429 — Too Many Requests</title>
-  <style>
+  <style nonce="{{.Nonce}}">
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
     body {
@@ -229,7 +251,6 @@ var rateLimitTmpl = template.Must(template.New("ratelimit").Parse(`<!DOCTYPE htm
       stroke-linecap: round;
       stroke-dasharray: 326.73;
       stroke-dashoffset: 0;
-      transition: stroke-dashoffset 1s linear;
     }
     .timer-inner {
       position: absolute;
@@ -276,15 +297,15 @@ var rateLimitTmpl = template.Must(template.New("ratelimit").Parse(`<!DOCTYPE htm
       text-decoration: none;
       box-shadow: 0 4px 20px rgba(249, 115, 22, 0.4);
       transition: transform 0.15s ease, box-shadow 0.15s ease, opacity 0.15s ease;
-      opacity: 0;
-      pointer-events: none;
     }
-    .btn.visible {
-      opacity: 1;
-      pointer-events: auto;
+    .btn:disabled {
+      opacity: 0.35;
+      cursor: not-allowed;
+      box-shadow: none;
+      transform: none;
     }
-    .btn:hover { transform: translateY(-2px); box-shadow: 0 8px 28px rgba(249, 115, 22, 0.55); }
-    .btn:active { transform: translateY(0); }
+    .btn:not(:disabled):hover { transform: translateY(-2px); box-shadow: 0 8px 28px rgba(249, 115, 22, 0.55); }
+    .btn:not(:disabled):active { transform: translateY(0); }
 
     .btn svg { width: 16px; height: 16px; flex-shrink: 0; }
 
@@ -317,25 +338,24 @@ var rateLimitTmpl = template.Must(template.New("ratelimit").Parse(`<!DOCTYPE htm
         <circle class="ring-fg" id="ring" cx="55" cy="55" r="52"/>
       </svg>
       <div class="timer-inner">
-        <span class="timer-seconds" id="countdown">{{.}}</span>
+        <span class="timer-seconds" id="countdown">{{.Seconds}}</span>
         <span class="timer-unit" id="unit">sec</span>
       </div>
     </div>
 
-    <button class="btn" id="refreshBtn" onclick="window.location.reload()">
+    <button class="btn" id="refreshBtn" disabled onclick="window.location.reload()">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
         <path d="M21 2v6h-6"/><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M3 22v-6h6"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/>
       </svg>
       Try again
     </button>
 
-    <p class="hint" id="hint">Button will appear when ready</p>
+    <p class="hint" id="hint">Button will be enabled when ready</p>
   </div>
 
-  <script>
+  <script nonce="{{.Nonce}}">
     (function () {
-      var total = {{.}};
-      var remaining = total;
+      var total = {{.Seconds}};
       var circumference = 2 * Math.PI * 52;
       var ring = document.getElementById('ring');
       var label = document.getElementById('countdown');
@@ -344,25 +364,37 @@ var rateLimitTmpl = template.Must(template.New("ratelimit").Parse(`<!DOCTYPE htm
       var hint = document.getElementById('hint');
 
       ring.style.strokeDasharray = circumference;
+
+      function markReady() {
+        label.textContent = '✓';
+        label.classList.add('done');
+        unit.textContent = 'ready';
+        ring.style.strokeDashoffset = circumference;
+        btn.removeAttribute('disabled');
+        hint.style.display = 'none';
+      }
+
+      if (total <= 0) {
+        ring.style.strokeDashoffset = circumference;
+        markReady();
+        return;
+      }
+
       ring.style.strokeDashoffset = 0;
+      var startTime = performance.now();
 
-      var interval = setInterval(function () {
-        remaining--;
-        if (remaining < 0) remaining = 0;
-
-        label.textContent = remaining;
-        var offset = circumference * (1 - remaining / total);
-        ring.style.strokeDashoffset = offset;
-
+      function tick() {
+        var remaining = total - (performance.now() - startTime) / 1000;
         if (remaining <= 0) {
-          clearInterval(interval);
-          label.textContent = '✓';
-          label.classList.add('done');
-          unit.textContent = 'ready';
-          btn.classList.add('visible');
-          hint.style.display = 'none';
+          markReady();
+          return;
         }
-      }, 1000);
+        label.textContent = Math.ceil(remaining);
+        ring.style.strokeDashoffset = circumference * (1 - remaining / total);
+        requestAnimationFrame(tick);
+      }
+
+      requestAnimationFrame(tick);
     })();
   </script>
 </body>
