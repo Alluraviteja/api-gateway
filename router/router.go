@@ -27,6 +27,9 @@ func New(routes map[string]string) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		h, ok := handlers[r.Host]
 		if !ok {
+			h, ok = handlers[strings.TrimPrefix(r.Host, "www.")]
+		}
+		if !ok {
 			h, ok = handlers[hostKey(r.Host)]
 		}
 		if !ok {
