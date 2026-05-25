@@ -1,2 +1,3 @@
 routes:
   bitenabled.com: http://personal-website:8080
+  rl-agents.bitenabled.com: http://rate-limiter-agents:8000
