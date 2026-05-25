@@ -33,8 +33,9 @@ func generateNonce() string {
 func RateLimit(rl *client.RateLimiterClient, routes map[string]string, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, exactMatch := routes[r.Host]
+		_, wwwMatch := routes[strings.TrimPrefix(r.Host, "www.")]
 		_, keyMatch := routes[resolveServiceIdentifier(r)]
-		if !exactMatch && !keyMatch {
+		if !exactMatch && !wwwMatch && !keyMatch {
 			slog.Warn("host not in routes, rejecting", "host", r.Host)
 			http.Error(w, "unknown host", http.StatusBadGateway)
 			return
@@ -110,8 +111,9 @@ func resolveServiceIdentifier(r *http.Request) string {
 	if net.ParseIP(host) != nil {
 		return port
 	}
+	host = strings.TrimPrefix(host, "www.")
 	parts := strings.Split(host, ".")
-	if len(parts) >= 3 {
+	if len(parts) >= 2 {
 		return parts[0]
 	}
 	return ""
