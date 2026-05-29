@@ -42,11 +42,10 @@ func Logger(next http.Handler) http.Handler {
 			"request_id", requestID,
 			"method", r.Method,
 			"host", r.Host,
-			"path", r.URL.Path,
 			"status", rw.status,
 			"bytes", rw.size,
 			"duration_ms", time.Since(start).Milliseconds(),
-			"client_ip", remoteIP(r),
 		)
 	})
 }
+
