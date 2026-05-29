@@ -27,7 +27,6 @@ type checkRequest struct {
 	Browser           string `json:"browser,omitempty"`
 	OS                string `json:"os,omitempty"`
 	RequestSize       int64  `json:"requestSize,omitempty"`
-	Referer           string `json:"referer,omitempty"`
 }
 
 // RequestMeta holds parsed request metadata to pass to IsAllowed.
@@ -39,7 +38,6 @@ type RequestMeta struct {
 	Browser     string
 	OS          string
 	RequestSize int64
-	Referer     string
 }
 
 // CheckResult holds the parsed response from the Rate Limiter Service.
@@ -100,7 +98,6 @@ func (c *RateLimiterClient) IsAllowed(serviceIdentifier, clientIP, requestPath, 
 		Browser:           meta.Browser,
 		OS:                meta.OS,
 		RequestSize:       meta.RequestSize,
-		Referer:           meta.Referer,
 	}
 
 	body, err := json.Marshal(payload)

@@ -20,8 +20,9 @@ type Config struct {
 	MetricsToken    string
 	MaxBodyBytes    int64
 	RequestTimeout  time.Duration
-	RoutesFile string
-	Routes     map[string]string
+	RoutesFile      string
+	Routes          map[string]string
+	IPEncryptionKey string
 }
 
 // Load reads configuration from environment variables with sensible defaults.
@@ -35,7 +36,8 @@ func Load() *Config {
 		MetricsToken:     os.Getenv("METRICS_TOKEN"),
 		MaxBodyBytes:     int64(getEnvInt("MAX_BODY_MB", 10)) * 1024 * 1024,
 		RequestTimeout:   time.Duration(getEnvInt("REQUEST_TIMEOUT_SECONDS", 30)) * time.Second,
-		RoutesFile: os.Getenv("ROUTES_FILE"),
+		RoutesFile:   os.Getenv("ROUTES_FILE"),
+		IPEncryptionKey: os.Getenv("IP_ENCRYPTION_KEY"),
 	}
 	cfg.Routes = loadRoutes(cfg.RoutesFile)
 	return cfg

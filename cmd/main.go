@@ -48,7 +48,7 @@ func main() {
 					middleware.Metrics(
 						middleware.Timeout(cfg.RequestTimeout,
 							middleware.MaxBodySize(cfg.MaxBodyBytes,
-								middleware.RateLimit(rl, cfg.Routes, r),
+								middleware.RateLimit(rl, cfg.Routes, cfg.IPEncryptionKey, r),
 							),
 						),
 					),
