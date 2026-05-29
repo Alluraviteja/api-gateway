@@ -103,6 +103,7 @@ jobs:
               -e MAX_BODY_MB=${{ secrets.MAX_BODY_MB }} \
               -e REQUEST_TIMEOUT_SECONDS=${{ secrets.REQUEST_TIMEOUT_SECONDS }} \
               -e METRICS_TOKEN=${{ secrets.METRICS_TOKEN }} \
+              -e IP_ENCRYPTION_KEY=${{ secrets.IP_ENCRYPTION_KEY }} \
               -e ROUTES_FILE=/etc/gateway/routes.yaml \
               -v /etc/gateway/routes.yaml:/etc/gateway/routes.yaml:ro \
               -p 8080:8080 \
@@ -127,6 +128,7 @@ jobs:
                   -e MAX_BODY_MB=${{ secrets.MAX_BODY_MB }} \
                   -e REQUEST_TIMEOUT_SECONDS=${{ secrets.REQUEST_TIMEOUT_SECONDS }} \
                   -e METRICS_TOKEN=${{ secrets.METRICS_TOKEN }} \
+                  -e IP_ENCRYPTION_KEY=${{ secrets.IP_ENCRYPTION_KEY }} \
                   -e ROUTES_FILE=/etc/gateway/routes.yaml \
                   -v /etc/gateway/routes.yaml:/etc/gateway/routes.yaml:ro \
                   -p 8080:8080 \

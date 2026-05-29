@@ -1,8 +1,13 @@
 package middleware
 
 import (
+	"crypto/aes"
+	"crypto/cipher"
+	"crypto/hmac"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"fmt"
 	"html/template"
 	"log/slog"
@@ -30,7 +35,7 @@ func generateNonce() string {
 // RateLimit checks the Rate Limiter Service before passing to next.
 // Skips the rate limiter if the request host is not in the routes map.
 // If the request is rate limited, it responds with 429 and stops.
-func RateLimit(rl *client.RateLimiterClient, routes map[string]string, next http.Handler) http.Handler {
+func RateLimit(rl *client.RateLimiterClient, routes map[string]string, ipEncryptionKey string, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, exactMatch := routes[r.Host]
 		_, wwwMatch := routes[strings.TrimPrefix(r.Host, "www.")]
@@ -45,6 +50,7 @@ func RateLimit(rl *client.RateLimiterClient, routes map[string]string, next http
 		if clientIP == "" {
 			clientIP = remoteIP(r)
 		}
+		clientIP = encryptIP(clientIP, ipEncryptionKey)
 
 		serviceIdentifier := resolveServiceIdentifier(r)
 		meta := buildRequestMeta(r)
@@ -54,8 +60,6 @@ func RateLimit(rl *client.RateLimiterClient, routes map[string]string, next http
 			slog.Error("rate limiter error",
 				"error", err,
 				"serviceIdentifier", serviceIdentifier,
-				"clientIp", clientIP,
-				"requestPath", r.URL.Path,
 				"httpMethod", r.Method,
 			)
 		}
@@ -63,8 +67,6 @@ func RateLimit(rl *client.RateLimiterClient, routes map[string]string, next http
 		if !result.Allowed {
 			slog.Warn("request rate limited",
 				"serviceIdentifier", serviceIdentifier,
-				"clientIp", clientIP,
-				"requestPath", r.URL.Path,
 				"httpMethod", r.Method,
 			)
 			retryAfter := result.RetryAfterSecs
@@ -119,6 +121,41 @@ func resolveServiceIdentifier(r *http.Request) string {
 	return ""
 }
 
+// fallbackKey is a random per-process key used when IP_ENCRYPTION_KEY is not set.
+// Rate limiting still works but encrypted IPs cannot be decrypted across restarts.
+var fallbackKey = func() string {
+	b := make([]byte, 32)
+	rand.Read(b)
+	return hex.EncodeToString(b)
+}()
+
+// encryptIP encrypts the IP with AES-256-GCM using a deterministic nonce so the
+// same IP always produces the same ciphertext — required for rate limit counting.
+// The result is base64url-encoded and safe to use as a rate limiter client ID.
+func encryptIP(ip, key string) string {
+	if key == "" {
+		key = fallbackKey
+	}
+	k := sha256.Sum256([]byte(key))
+	block, err := aes.NewCipher(k[:])
+	if err != nil {
+		return ip
+	}
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return ip
+	}
+	// Deterministic nonce: HMAC(key, ip) truncated to nonce size.
+	// Same IP + same key → same nonce → same ciphertext (needed for rate limiting).
+	mac := hmac.New(sha256.New, k[:])
+	mac.Write([]byte(ip))
+	nonce := mac.Sum(nil)[:gcm.NonceSize()]
+
+	ciphertext := gcm.Seal(nil, nonce, []byte(ip), nil)
+	return base64.URLEncoding.EncodeToString(append(nonce, ciphertext...))
+}
+
+
 // remoteIP extracts the client IP, respecting X-Forwarded-For.
 func remoteIP(r *http.Request) string {
 	if ip := r.Header.Get("X-Forwarded-For"); ip != "" {
@@ -140,7 +177,6 @@ func buildRequestMeta(r *http.Request) client.RequestMeta {
 		Browser:     parsed.Name,
 		OS:          parsed.OS,
 		RequestSize: r.ContentLength,
-		Referer:     r.Header.Get("Referer"),
 	}
 }
 
