@@ -43,6 +43,7 @@ type RequestMeta struct {
 // CheckResult holds the parsed response from the Rate Limiter Service.
 type CheckResult struct {
 	Allowed           bool
+	Forbidden         bool
 	Limit             int
 	Remaining         int
 	ResetAfterSeconds int
@@ -146,9 +147,9 @@ func (c *RateLimiterClient) IsAllowed(serviceIdentifier, clientIP, requestPath, 
 	case http.StatusNotFound:
 		var errResp errorResponse
 		if err := json.NewDecoder(resp.Body).Decode(&errResp); err != nil {
-			return CheckResult{Allowed: true}, fmt.Errorf("decode 404 response: %w", err)
+			return CheckResult{Allowed: false, Forbidden: true}, fmt.Errorf("decode 404 response: %w", err)
 		}
-		return CheckResult{Allowed: true}, fmt.Errorf("service not registered in rate limiter: %s", errResp.Message)
+		return CheckResult{Allowed: false, Forbidden: true}, fmt.Errorf("service not registered in rate limiter: %s", errResp.Message)
 
 	case http.StatusBadRequest:
 		var errResp errorResponse

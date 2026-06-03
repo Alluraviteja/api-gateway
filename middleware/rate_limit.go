@@ -64,6 +64,16 @@ func RateLimit(rl *client.RateLimiterClient, routes map[string]string, ipEncrypt
 			)
 		}
 
+		if result.Forbidden {
+			slog.Warn("request forbidden: path not configured in rate limiter",
+				"serviceIdentifier", serviceIdentifier,
+				"path", r.URL.Path,
+				"httpMethod", r.Method,
+			)
+			http.Error(w, "Forbidden", http.StatusForbidden)
+			return
+		}
+
 		if !result.Allowed {
 			slog.Warn("request rate limited",
 				"serviceIdentifier", serviceIdentifier,
